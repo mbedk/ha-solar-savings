@@ -107,8 +107,14 @@ class _SolarSavingsSensorBase(SensorEntity):
 
 
 class _MoneySensor(_SolarSavingsSensorBase):
+    # device_class MONETARY only permits state_class TOTAL (or None), never
+    # TOTAL_INCREASING - HA enforces this because money can decrease (refunds,
+    # corrections), and it's also correct here: battery_arbitrage_savings (and
+    # anything summing it) can legitimately go down after a losing arbitrage
+    # trade, i.e. discharging grid-charged energy when the price has since
+    # dropped below what was paid for it.
     _attr_device_class = SensorDeviceClass.MONETARY
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = "DKK"
 
 

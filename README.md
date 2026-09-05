@@ -30,8 +30,12 @@ its source and, for grid parcels, the price paid).
 | `sensor.battery_solar_fraction` | ratio 0–1 | Diagnostic: share of what's currently in the battery that's solar-origin |
 | `sensor.battery_grid_charge_cost_basis` | DKK/kWh | Diagnostic: weighted-average price paid for the grid-origin energy currently in the battery |
 
-All money entities are `device_class: monetary`, `state_class: total_increasing`
-(they only ever grow) — use HA's History/Statistics graphs on them for
+All money entities are `device_class: monetary`, `state_class: total` — they
+accumulate over time like the others, but `battery_arbitrage_savings` (and
+anything summing it) can legitimately decrease after a losing arbitrage trade
+(grid-charged energy discharged once the price has dropped below what was
+paid for it), so `total_increasing` would be both rejected by Home Assistant
+and semantically wrong. Use HA's History/Statistics graphs on them for
 daily/monthly/yearly breakdowns.
 
 ## Configuration
