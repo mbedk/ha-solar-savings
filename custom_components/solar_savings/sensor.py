@@ -6,6 +6,7 @@ from collections.abc import Callable
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -65,8 +66,11 @@ class _SolarSavingsSensorBase(SensorEntity):
     RestoreEntity fallback needed here.
     """
 
+    # Deliberately NOT has_entity_name=True: that would prefix every entity
+    # with the device name ("Solar Savings" + "Solar Direct Savings"), and
+    # these names are already complete, standalone names chosen to match a
+    # specific entity_id (e.g. sensor.solar_direct_savings).
     _attr_should_poll = False
-    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -84,7 +88,7 @@ class _SolarSavingsSensorBase(SensorEntity):
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Solar Savings",
-            "entry_type": "service",
+            "entry_type": DeviceEntryType.SERVICE,
         }
 
     async def async_added_to_hass(self) -> None:
