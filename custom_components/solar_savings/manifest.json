@@ -1,0 +1,11 @@
+{
+  "domain": "solar_savings",
+  "name": "Solar Savings",
+  "codeowners": ["@martin"],
+  "config_flow": true,
+  "documentation": "https://git.eskesen.eu/eskesen/ha-solar-savings",
+  "issue_tracker": "https://git.eskesen.eu/eskesen/ha-solar-savings/issues",
+  "iot_class": "calculated",
+  "version": "0.1.0",
+  "requirements": []
+}

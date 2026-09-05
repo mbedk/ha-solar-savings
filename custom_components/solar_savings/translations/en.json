@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Solar Savings",
+        "description": "Select the entities used to compute solar and battery savings at grid pricing.",
+        "data": {
+          "solar_power_entity": "Solar power",
+          "battery_charge_power_entity": "Battery charge power",
+          "battery_discharge_power_entity": "Battery discharge power",
+          "feed_in_power_entity": "Grid feed-in (export) power",
+          "grid_price_entity": "Grid import price",
+          "export_price_entity": "Export / compensation price",
+          "battery_grid_charge_entity": "Battery grid-charge indicator"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Solar Savings is already configured."
+    }
+  }
+}
