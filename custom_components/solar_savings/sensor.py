@@ -66,11 +66,16 @@ class _SolarSavingsSensorBase(SensorEntity):
     RestoreEntity fallback needed here.
     """
 
-    # Deliberately NOT has_entity_name=True: that would prefix every entity
-    # with the device name ("Solar Savings" + "Solar Direct Savings"), and
-    # these names are already complete, standalone names chosen to match a
-    # specific entity_id (e.g. sensor.solar_direct_savings).
+    # Explicitly False (not just "unset"): merely omitting has_entity_name
+    # was NOT enough on this HA version - entities still came out with the
+    # device name prefixed onto both entity_id and friendly_name
+    # (sensor.solar_savings_total_solar_savings), which only happens when
+    # has_entity_name resolves to True. Whatever the exact cause (a newer
+    # default for device-linked entities, most likely), forcing it False
+    # here plus pinning entity_id explicitly below makes the outcome
+    # deterministic instead of depending on a base-class default.
     _attr_should_poll = False
+    _attr_has_entity_name = False
 
     def __init__(
         self,
@@ -85,6 +90,7 @@ class _SolarSavingsSensorBase(SensorEntity):
         self._getter = getter
         self._attr_name = name
         self._attr_unique_id = f"{entry.entry_id}_{key}"
+        self.entity_id = f"sensor.{key}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Solar Savings",
