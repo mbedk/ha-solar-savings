@@ -17,6 +17,68 @@ traced back to where it came from before it can be valued correctly. See
 for the accounting model (a FIFO queue of energy "parcels," each tagged with
 its source and, for grid parcels, the price paid).
 
+## How the FIFO ledger works
+
+Every charge appends a "parcel" to the **back** of a queue (tagged with
+where the energy came from, and its cost if it came from the grid). Every
+discharge consumes energy from the **front** of that same queue — so energy
+is credited to whichever stream it actually came from, in the order it was
+actually stored, instead of an approximate "solar vs. grid" ratio for the
+whole battery.
+
+```mermaid
+flowchart TD
+    C(["Battery charging\n(this tick)"]) --> Q{"evcc grid-charge\nactive right now?"}
+    Q -- yes --> G["Tag this slice GRID\nunit_cost = current grid price"]
+    Q -- no --> S["Tag this slice SOLAR\nunit_cost = 0"]
+    G --> A["Append to the BACK of the queue\n(merge into the previous parcel if\nsame source + same cost)"]
+    S --> A
+
+    D(["Battery discharging\n(this tick)"]) --> F["Take energy from the\nFRONT parcel"]
+    F --> T{"That parcel's\nsource?"}
+    T -- SOLAR --> SV["+= kWh × current grid price\n→ solar_via_battery_savings"]
+    T -- GRID --> AV["+= kWh × (current grid price − parcel's unit_cost)\n→ battery_arbitrage_savings"]
+    SV --> N{"Parcel fully\nconsumed?"}
+    AV --> N
+    N -- yes, energy remains --> P["Pop it, move to\nthe next parcel"]
+    N -- no / nothing left to discharge --> E(["Done for this tick"])
+    P --> F
+```
+
+Walking through it with concrete numbers (this is exactly what
+[`tests/test_ledger.py`](tests/test_ledger.py)'s
+`test_discharge_consumes_parcels_in_fifo_order` asserts):
+
+```
+1. charge_battery(2.0 kWh, SOLAR, cost=0)
+   queue:  [ SOLAR 2.0 kWh ]
+            front ────────── back
+
+2. charge_battery(3.0 kWh, GRID, cost=1.00 DKK/kWh)
+   queue:  [ SOLAR 2.0 kWh ][ GRID 3.0 kWh @1.00 ]
+            front ──────────────────────── back
+
+3. discharge_battery(1.0 kWh, grid_price=2.00)
+   → takes 1.0 kWh off the FRONT parcel (SOLAR)
+   → solar_via_battery_savings += 1.0 × 2.00 = 2.00 DKK
+   queue:  [ SOLAR 1.0 kWh ][ GRID 3.0 kWh @1.00 ]
+
+4. discharge_battery(2.0 kWh, grid_price=2.00)
+   → finishes the SOLAR parcel (1.0 kWh left): += 1.0 × 2.00 = 2.00 DKK
+     (solar_via_battery_savings now 4.00 DKK total) — parcel emptied, popped
+   → spills into the GRID parcel for the remaining 1.0 kWh:
+     battery_arbitrage_savings += 1.0 × (2.00 − 1.00) = 1.00 DKK
+   queue:  [ GRID 2.0 kWh @1.00 ]
+
+Result: solar_via_battery_savings = 4.00 DKK, battery_arbitrage_savings =
+1.00 DKK — each kWh landed in the stream it actually came from.
+```
+
+`battery_solar_fraction` and `battery_grid_charge_cost_basis` (the two
+diagnostic sensors) are just read-outs of what's currently sitting in the
+queue at any given moment — e.g. after step 4 above, the queue is 100% GRID
+at a 1.00 DKK/kWh cost basis, so `battery_solar_fraction` would read `0.0`.
+
 ## Entities created
 
 | Entity | Unit | What it means |
@@ -61,14 +123,18 @@ are in currency/kWh.
 
 ## Installation
 
-**Manual (always works):** copy `custom_components/solar_savings/` into your
-Home Assistant `config/custom_components/` directory, restart Home
-Assistant, then add the integration from the UI.
+**HACS (recommended):** this repo is mirrored to
+[`github.com/mbedk/ha-solar-savings`](https://github.com/mbedk/ha-solar-savings)
+(git.eskesen.eu is the source of truth; every push there auto-mirrors to
+GitHub) specifically so HACS can use it — HACS's "add custom repository"
+flow expects a GitHub URL, which the self-hosted Forgejo repo alone
+wouldn't satisfy. Add `https://github.com/mbedk/ha-solar-savings` as a
+custom repository, category "Integration," then install and restart Home
+Assistant.
 
-**HACS custom repository:** HACS's "add custom repository" flow expects a
-GitHub URL; a self-hosted Forgejo repository (like this one, on
-`git.eskesen.eu`) may not be accepted there. If it isn't, use the manual
-copy method above instead.
+**Manual:** copy `custom_components/solar_savings/` into your Home
+Assistant `config/custom_components/` directory, restart Home Assistant,
+then add the integration from the UI.
 
 ## Development
 
