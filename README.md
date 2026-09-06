@@ -83,6 +83,22 @@ diagnostic sensors) are just read-outs of what's currently sitting in the
 queue at any given moment — e.g. after step 4 above, the queue is 100% GRID
 at a 1.00 DKK/kWh cost basis, so `battery_solar_fraction` would read `0.0`.
 
+## Daily/weekly/monthly/yearly rollover
+
+[`periods.py`](custom_components/solar_savings/periods.py) tracks the four
+`sensor.total_system_savings_*` entities the same way the ledger tracks
+money: a small, dependency-free, unit-tested class (`tests/test_periods.py`)
+that `engine.py` feeds on every tick. For each period it remembers a
+**baseline** — the value `total_system_savings` had when the current
+day/week/month/year started — and reports `total_system_savings − baseline`.
+When the calendar rolls over (checked against *local* time, so "daily" means
+local midnight, not UTC), the baseline resets to whatever the total is at
+that moment, and the period starts counting from zero again. "Weekly" uses
+the ISO week (Monday start) — note that this doesn't always line up with
+"yearly": the ISO week containing Jan 1st can belong to the previous
+calendar year (`tests/test_periods.py` has a rollover test built around
+exactly that case).
+
 ## Entities created
 
 | Entity | Unit | What it means |
@@ -93,16 +109,24 @@ at a 1.00 DKK/kWh cost basis, so `battery_solar_fraction` would read `0.0`.
 | `sensor.battery_arbitrage_savings` | DKK | Grid energy bought cheap, stored, discharged when the price was higher |
 | `sensor.total_system_savings` | DKK | Solar savings + arbitrage savings — everything the system has saved, regardless of source |
 | `sensor.solar_export_revenue` | DKK | Energy fed back to the grid, valued at the export/compensation price. Revenue, not a saving — kept separate on purpose |
+| `sensor.total_system_savings_daily` | DKK | `total_system_savings`, but reset to the value it had at local midnight today |
+| `sensor.total_system_savings_weekly` | DKK | Same, reset at the start of the current ISO week (Monday) |
+| `sensor.total_system_savings_monthly` | DKK | Same, reset on the 1st of the current month |
+| `sensor.total_system_savings_yearly` | DKK | Same, reset on Jan 1st of the current year |
 | `sensor.battery_solar_fraction` | ratio 0–1 | Diagnostic: share of what's currently in the battery that's solar-origin |
 | `sensor.battery_grid_charge_cost_basis` | DKK/kWh | Diagnostic: weighted-average price paid for the grid-origin energy currently in the battery |
 
 All money entities are `device_class: monetary`, `state_class: total` — they
 accumulate over time like the others, but `battery_arbitrage_savings` (and
-anything summing it) can legitimately decrease after a losing arbitrage trade
+anything summing it, including the four period sensors above) can
+legitimately decrease within a period after a losing arbitrage trade
 (grid-charged energy discharged once the price has dropped below what was
 paid for it), so `total_increasing` would be both rejected by Home Assistant
-and semantically wrong. Use HA's History/Statistics graphs on them for
-daily/monthly/yearly breakdowns.
+and semantically wrong. For the other four money entities (which only ever
+go up), HA's own History/Statistics graphs already give daily/monthly/yearly
+breakdowns for free — the four period sensors exist specifically for
+`total_system_savings` because a dashboard tile wanting "how much has this
+saved me this month" shouldn't require opening the Statistics view.
 
 ## Configuration
 

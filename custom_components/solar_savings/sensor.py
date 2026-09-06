@@ -13,7 +13,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
 from .engine import SolarSavingsEngine
-from .ledger import SolarSavingsLedger
 
 
 async def async_setup_entry(
@@ -25,35 +24,51 @@ async def async_setup_entry(
         [
             _MoneySensor(
                 engine, entry, "solar_direct_savings", "Solar Direct Savings",
-                lambda ledger: ledger.solar_direct_savings,
+                lambda engine: engine.ledger.solar_direct_savings,
             ),
             _MoneySensor(
                 engine, entry, "solar_via_battery_savings", "Solar Via Battery Savings",
-                lambda ledger: ledger.solar_via_battery_savings,
+                lambda engine: engine.ledger.solar_via_battery_savings,
             ),
             _MoneySensor(
                 engine, entry, "total_solar_savings", "Total Solar Savings",
-                lambda ledger: ledger.total_solar_savings,
+                lambda engine: engine.ledger.total_solar_savings,
             ),
             _MoneySensor(
                 engine, entry, "battery_arbitrage_savings", "Battery Arbitrage Savings",
-                lambda ledger: ledger.battery_arbitrage_savings,
+                lambda engine: engine.ledger.battery_arbitrage_savings,
             ),
             _MoneySensor(
                 engine, entry, "total_system_savings", "Total System Savings",
-                lambda ledger: ledger.total_system_savings,
+                lambda engine: engine.ledger.total_system_savings,
             ),
             _MoneySensor(
                 engine, entry, "solar_export_revenue", "Solar Export Revenue",
-                lambda ledger: ledger.solar_export_revenue,
+                lambda engine: engine.ledger.solar_export_revenue,
+            ),
+            _MoneySensor(
+                engine, entry, "total_system_savings_daily", "Total System Savings Daily",
+                lambda engine: engine.period_tracker.value("daily"),
+            ),
+            _MoneySensor(
+                engine, entry, "total_system_savings_weekly", "Total System Savings Weekly",
+                lambda engine: engine.period_tracker.value("weekly"),
+            ),
+            _MoneySensor(
+                engine, entry, "total_system_savings_monthly", "Total System Savings Monthly",
+                lambda engine: engine.period_tracker.value("monthly"),
+            ),
+            _MoneySensor(
+                engine, entry, "total_system_savings_yearly", "Total System Savings Yearly",
+                lambda engine: engine.period_tracker.value("yearly"),
             ),
             _RatioSensor(
                 engine, entry, "battery_solar_fraction", "Battery Solar Fraction",
-                lambda ledger: ledger.battery_solar_fraction,
+                lambda engine: engine.ledger.battery_solar_fraction,
             ),
             _CostBasisSensor(
                 engine, entry, "battery_grid_charge_cost_basis", "Battery Grid Charge Cost Basis",
-                lambda ledger: ledger.battery_grid_charge_cost_basis,
+                lambda engine: engine.ledger.battery_grid_charge_cost_basis,
             ),
         ]
     )
@@ -83,7 +98,7 @@ class _SolarSavingsSensorBase(SensorEntity):
         entry: ConfigEntry,
         key: str,
         name: str,
-        getter: Callable[[SolarSavingsLedger], float],
+        getter: Callable[[SolarSavingsEngine], float],
     ) -> None:
         self._engine = engine
         self._entry = entry
@@ -109,7 +124,7 @@ class _SolarSavingsSensorBase(SensorEntity):
 
     @property
     def native_value(self) -> float:
-        return round(self._getter(self._engine.ledger), 4)
+        return round(self._getter(self._engine), 4)
 
 
 class _MoneySensor(_SolarSavingsSensorBase):

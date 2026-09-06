@@ -30,6 +30,7 @@ from .const import (
     TICK_INTERVAL_SECONDS,
 )
 from .ledger import GRID, SOLAR, SolarSavingsLedger
+from .periods import PeriodTracker
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ class SolarSavingsEngine:
         self.entry_id = entry_id
         self.config = config
         self.ledger = SolarSavingsLedger()
+        self.period_tracker = PeriodTracker()
         self._store: Store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry_id}")
         self._last_ts: datetime | None = None
         self._unsub_state: list = []
@@ -73,8 +75,16 @@ class SolarSavingsEngine:
     async def async_setup(self) -> None:
         stored = await self._store.async_load()
         if stored:
-            self.ledger = SolarSavingsLedger.from_dict(stored)
-            _LOGGER.debug("Restored solar savings ledger for %s", self.entry_id)
+            if "parcels" in stored:
+                # Pre-period-tracking format: the whole blob was the ledger's
+                # own to_dict(). Migrate by keeping the ledger and starting
+                # the period tracker fresh - don't lose already-accumulated
+                # savings just because this feature didn't exist yet.
+                self.ledger = SolarSavingsLedger.from_dict(stored)
+            else:
+                self.ledger = SolarSavingsLedger.from_dict(stored.get("ledger", {}))
+                self.period_tracker = PeriodTracker.from_dict(stored.get("periods", {}))
+            _LOGGER.debug("Restored solar savings state for %s", self.entry_id)
 
         # Never backfill across a downtime gap - the next processed interval
         # starts measuring from "now", not from whenever HA last shut down.
@@ -159,5 +169,12 @@ class SolarSavingsEngine:
         if export_energy > 0 and export_price is not None:
             self.ledger.add_export(export_energy, export_price)
 
-        await self._store.async_save(self.ledger.to_dict())
+        # Calendar-period rollover uses local wall-clock time, not the UTC
+        # timestamp this method receives for elapsed-time math - "daily"
+        # means local midnight, not UTC midnight.
+        self.period_tracker.update(dt_util.now(), self.ledger.total_system_savings)
+
+        await self._store.async_save(
+            {"ledger": self.ledger.to_dict(), "periods": self.period_tracker.to_dict()}
+        )
         async_dispatcher_send(self.hass, self.signal)
