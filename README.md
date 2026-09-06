@@ -1,4 +1,8 @@
+<img src="logo.svg" width="88" height="88" align="left" alt="" />
+
 # Solar Savings
+
+<br clear="left" />
 
 A Home Assistant custom integration that tracks money saved by a solar +
 battery system, valued at real grid pricing — not just "how much solar did I

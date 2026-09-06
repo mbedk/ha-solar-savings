@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Solar Savings</title>
+  <defs>
+    <radialGradient id="sunGrad" cx="32%" cy="26%" r="78%">
+      <stop offset="0%" stop-color="#FFDE8A" />
+      <stop offset="55%" stop-color="#F6A623" />
+      <stop offset="100%" stop-color="#D07E12" />
+    </radialGradient>
+    <linearGradient id="chargeGrad" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#146B49" />
+      <stop offset="100%" stop-color="#3DDC84" />
+    </linearGradient>
+    <radialGradient id="badgeGrad" cx="32%" cy="26%" r="80%">
+      <stop offset="0%" stop-color="#4CE39A" />
+      <stop offset="100%" stop-color="#14804F" />
+    </radialGradient>
+  </defs>
+
+  <!-- sunburst: 12 rays around the disc -->
+  <g fill="url(#sunGrad)">
+    <rect x="-7" y="-122" width="14" height="26" rx="7" transform="translate(128,128) rotate(0)" />
+    <rect x="-7" y="-122" width="14" height="26" rx="7" transform="translate(128,128) rotate(30)" />
+    <rect x="-7" y="-122" width="14" height="26" rx="7" transform="translate(128,128) rotate(60)" />
+    <rect x="-7" y="-122" width="14" height="26" rx="7" transform="translate(128,128) rotate(90)" />
+    <rect x="-7" y="-122" width="14" height="26" rx="7" transform="translate(128,128) rotate(120)" />
+    <rect x="-7" y="-122" width="14" height="26" rx="7" transform="translate(128,128) rotate(150)" />
+    <rect x="-7" y="-122" width="14" height="26" rx="7" transform="translate(128,128) rotate(180)" />
+    <rect x="-7" y="-122" width="14" height="26" rx="7" transform="translate(128,128) rotate(210)" />
+    <rect x="-7" y="-122" width="14" height="26" rx="7" transform="translate(128,128) rotate(240)" />
+    <rect x="-7" y="-122" width="14" height="26" rx="7" transform="translate(128,128) rotate(270)" />
+    <rect x="-7" y="-122" width="14" height="26" rx="7" transform="translate(128,128) rotate(300)" />
+    <rect x="-7" y="-122" width="14" height="26" rx="7" transform="translate(128,128) rotate(330)" />
+  </g>
+
+  <!-- sun disc -->
+  <circle cx="128" cy="128" r="96" fill="url(#sunGrad)" />
+
+  <!-- battery -->
+  <rect x="116" y="62" width="24" height="20" rx="6" fill="#FBF3E1" stroke="#3B2812" stroke-width="7" />
+  <rect x="86" y="74" width="84" height="124" rx="20" fill="#FBF3E1" stroke="#3B2812" stroke-width="7" />
+
+  <!-- charge level -->
+  <rect x="100" y="134" width="56" height="50" rx="8" fill="url(#chargeGrad)" />
+
+  <!-- rising value arrow, drawn through the gauge -->
+  <path d="M128 98 L146 124 L134 124 L134 162 L122 162 L122 124 L110 124 Z" fill="#FFFFFF" />
+
+  <!-- savings badge -->
+  <circle cx="176" cy="178" r="32" fill="url(#badgeGrad)" stroke="#FBF3E1" stroke-width="6" />
+  <path d="M161 187 L172 174 L179 180 L191 163" fill="none" stroke="#FFFFFF" stroke-width="6"
+        stroke-linecap="round" stroke-linejoin="round" />
+  <circle cx="191" cy="163" r="4.5" fill="#FFFFFF" />
+</svg>
