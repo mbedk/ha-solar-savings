@@ -1,10 +1,12 @@
 """Pure-Python FIFO ledger for solar/battery savings accounting.
 
 This module has no Home Assistant imports so it can be unit tested in
-isolation (see tests/test_ledger.py). All the "what does a kWh of battery
-discharge actually represent" logic lives here; engine.py is only the thin
-Home Assistant glue (state listeners, persistence, entity updates) that
-feeds this ledger real numbers.
+isolation (see tests/test_ledger.py and tests/test_accounting.py). All the
+"what does a kWh of battery discharge actually represent" logic lives here -
+the FIFO ledger itself, plus apply_interval(), which turns one snapshot of
+live power readings into ledger postings. engine.py is only the thin Home
+Assistant glue (state listeners, persistence, entity updates) that reads
+those numbers off Home Assistant state and hands them here.
 """
 from __future__ import annotations
 
@@ -181,3 +183,54 @@ class SolarSavingsLedger:
 
 def _cost_equal(a: float, b: float, tol: float = _COST_TOLERANCE) -> bool:
     return abs(a - b) <= tol
+
+
+@dataclass(frozen=True)
+class Inputs:
+    """One snapshot of the configured source entities.
+
+    Powers are kW; prices are DKK/kWh and may be None when the price entity
+    is momentarily unavailable.
+    """
+
+    solar_power: float
+    battery_charge_power: float
+    battery_discharge_power: float
+    feed_in_power: float
+    grid_price: float | None
+    export_price: float | None
+    grid_charging: bool
+
+
+def apply_interval(ledger: SolarSavingsLedger, inputs: Inputs, dt_hours: float) -> None:
+    """Integrate `inputs` over `dt_hours` and post the result to `ledger`."""
+    battery_charge_energy = inputs.battery_charge_power * dt_hours
+    battery_discharge_energy = inputs.battery_discharge_power * dt_hours
+
+    if battery_charge_energy > 0:
+        if inputs.grid_charging and inputs.grid_price is not None:
+            ledger.charge_battery(battery_charge_energy, GRID, inputs.grid_price)
+        elif not inputs.grid_charging:
+            ledger.charge_battery(battery_charge_energy, SOLAR, 0.0)
+        # else: grid-charging with an unavailable price - skip recording this
+        # slice rather than record a false zero-cost grid parcel, which would
+        # fabricate arbitrage profit later. Rare (price sensor virtually
+        # always available), and conservative when it does happen.
+
+    if battery_discharge_energy > 0:
+        ledger.discharge_battery(battery_discharge_energy, inputs.grid_price)
+
+    # Direct solar = solar power not currently going into the battery from
+    # solar, and not exported. (Grid-sourced battery charging draws AC from
+    # the grid, not from PV output, so it never reduces this.)
+    battery_charge_power_from_solar = 0.0 if inputs.grid_charging else inputs.battery_charge_power
+    solar_direct_power = max(
+        0.0, inputs.solar_power - battery_charge_power_from_solar - inputs.feed_in_power
+    )
+    solar_direct_energy = solar_direct_power * dt_hours
+    if solar_direct_energy > 0 and inputs.grid_price is not None:
+        ledger.add_direct_solar(solar_direct_energy, inputs.grid_price)
+
+    export_energy = inputs.feed_in_power * dt_hours
+    if export_energy > 0 and inputs.export_price is not None:
+        ledger.add_export(export_energy, inputs.export_price)
