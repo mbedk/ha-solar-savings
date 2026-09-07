@@ -46,21 +46,17 @@ async def async_setup_entry(
                 engine, entry, "solar_export_revenue", "Solar Export Revenue",
                 lambda engine: engine.ledger.solar_export_revenue,
             ),
-            _MoneySensor(
-                engine, entry, "total_system_savings_daily", "Total System Savings Daily",
-                lambda engine: engine.period_tracker.value("daily"),
+            _PeriodMoneySensor(
+                engine, entry, "total_system_savings_daily", "Total System Savings Daily", "daily",
             ),
-            _MoneySensor(
-                engine, entry, "total_system_savings_weekly", "Total System Savings Weekly",
-                lambda engine: engine.period_tracker.value("weekly"),
+            _PeriodMoneySensor(
+                engine, entry, "total_system_savings_weekly", "Total System Savings Weekly", "weekly",
             ),
-            _MoneySensor(
-                engine, entry, "total_system_savings_monthly", "Total System Savings Monthly",
-                lambda engine: engine.period_tracker.value("monthly"),
+            _PeriodMoneySensor(
+                engine, entry, "total_system_savings_monthly", "Total System Savings Monthly", "monthly",
             ),
-            _MoneySensor(
-                engine, entry, "total_system_savings_yearly", "Total System Savings Yearly",
-                lambda engine: engine.period_tracker.value("yearly"),
+            _PeriodMoneySensor(
+                engine, entry, "total_system_savings_yearly", "Total System Savings Yearly", "yearly",
             ),
             _RatioSensor(
                 engine, entry, "battery_solar_fraction", "Battery Solar Fraction",
@@ -137,6 +133,28 @@ class _MoneySensor(_SolarSavingsSensorBase):
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = "DKK"
+
+
+class _PeriodMoneySensor(_MoneySensor):
+    """A daily/weekly/monthly/yearly rollup sensor that also exposes past
+    closed periods (e.g. previous years' totals) as an attribute, so they're
+    visible without digging through the recorder's history graph.
+
+    The history dict comes straight from PeriodTracker.history(), which only
+    ever records a period's real final value at the moment it actually rolled
+    over - never interpolated or estimated, so a period this tracker didn't
+    live through simply has no entry.
+    """
+
+    def __init__(
+        self, engine: SolarSavingsEngine, entry: ConfigEntry, key: str, name: str, period: str
+    ) -> None:
+        super().__init__(engine, entry, key, name, lambda engine: engine.period_tracker.value(period))
+        self._period = period
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"history": self._engine.period_tracker.history(self._period)}
 
 
 class _RatioSensor(_SolarSavingsSensorBase):

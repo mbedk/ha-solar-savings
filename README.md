@@ -153,11 +153,10 @@ are in currency/kWh.
 
 **HACS (recommended):** this repo is mirrored to
 [`github.com/mbedk/ha-solar-savings`](https://github.com/mbedk/ha-solar-savings)
-(git.eskesen.eu is the source of truth; every push there auto-mirrors to
-GitHub) specifically so HACS can use it — HACS's "add custom repository"
-flow expects a GitHub URL, which the self-hosted Forgejo repo alone
-wouldn't satisfy. Add `https://github.com/mbedk/ha-solar-savings` as a
-custom repository, category "Integration," then install and restart Home
+specifically so HACS can use it — HACS's "add custom repository" flow
+expects a GitHub URL, which the self-hosted source repo alone wouldn't
+satisfy. Add `https://github.com/mbedk/ha-solar-savings` as a custom
+repository, category "Integration," then install and restart Home
 Assistant.
 
 **Manual:** copy `custom_components/solar_savings/` into your Home
