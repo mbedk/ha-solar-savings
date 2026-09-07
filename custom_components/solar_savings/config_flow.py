@@ -6,66 +6,18 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.helpers import selector
 
-from .const import (
-    CONF_BATTERY_CHARGE_POWER_ENTITY,
-    CONF_BATTERY_DISCHARGE_POWER_ENTITY,
-    CONF_BATTERY_GRID_CHARGE_ENTITY,
-    CONF_EXPORT_PRICE_ENTITY,
-    CONF_FEED_IN_POWER_ENTITY,
-    CONF_GRID_PRICE_ENTITY,
-    CONF_SOLAR_POWER_ENTITY,
-    DEFAULT_BATTERY_CHARGE_POWER_ENTITY,
-    DEFAULT_BATTERY_DISCHARGE_POWER_ENTITY,
-    DEFAULT_BATTERY_GRID_CHARGE_ENTITY,
-    DEFAULT_EXPORT_PRICE_ENTITY,
-    DEFAULT_FEED_IN_POWER_ENTITY,
-    DEFAULT_GRID_PRICE_ENTITY,
-    DEFAULT_SOLAR_POWER_ENTITY,
-    DOMAIN,
-)
+from .const import DOMAIN, INPUT_FIELDS
 
-_DEFAULTS = {
-    CONF_SOLAR_POWER_ENTITY: DEFAULT_SOLAR_POWER_ENTITY,
-    CONF_BATTERY_CHARGE_POWER_ENTITY: DEFAULT_BATTERY_CHARGE_POWER_ENTITY,
-    CONF_BATTERY_DISCHARGE_POWER_ENTITY: DEFAULT_BATTERY_DISCHARGE_POWER_ENTITY,
-    CONF_FEED_IN_POWER_ENTITY: DEFAULT_FEED_IN_POWER_ENTITY,
-    CONF_GRID_PRICE_ENTITY: DEFAULT_GRID_PRICE_ENTITY,
-    CONF_EXPORT_PRICE_ENTITY: DEFAULT_EXPORT_PRICE_ENTITY,
-    CONF_BATTERY_GRID_CHARGE_ENTITY: DEFAULT_BATTERY_GRID_CHARGE_ENTITY,
-}
+_DEFAULTS = {field.key: field.default for field in INPUT_FIELDS}
 
 
-def _entity_selector(domain: str) -> selector.EntitySelector:
-    return selector.EntitySelector(selector.EntitySelectorConfig(domain=domain))
-
-
-def _schema(defaults: dict) -> vol.Schema:
+def _schema(defaults: dict[str, str]) -> vol.Schema:
     return vol.Schema(
         {
-            vol.Required(
-                CONF_SOLAR_POWER_ENTITY, default=defaults[CONF_SOLAR_POWER_ENTITY]
-            ): _entity_selector("sensor"),
-            vol.Required(
-                CONF_BATTERY_CHARGE_POWER_ENTITY,
-                default=defaults[CONF_BATTERY_CHARGE_POWER_ENTITY],
-            ): _entity_selector("sensor"),
-            vol.Required(
-                CONF_BATTERY_DISCHARGE_POWER_ENTITY,
-                default=defaults[CONF_BATTERY_DISCHARGE_POWER_ENTITY],
-            ): _entity_selector("sensor"),
-            vol.Required(
-                CONF_FEED_IN_POWER_ENTITY, default=defaults[CONF_FEED_IN_POWER_ENTITY]
-            ): _entity_selector("sensor"),
-            vol.Required(
-                CONF_GRID_PRICE_ENTITY, default=defaults[CONF_GRID_PRICE_ENTITY]
-            ): _entity_selector("sensor"),
-            vol.Required(
-                CONF_EXPORT_PRICE_ENTITY, default=defaults[CONF_EXPORT_PRICE_ENTITY]
-            ): _entity_selector("sensor"),
-            vol.Required(
-                CONF_BATTERY_GRID_CHARGE_ENTITY,
-                default=defaults[CONF_BATTERY_GRID_CHARGE_ENTITY],
-            ): _entity_selector("binary_sensor"),
+            vol.Required(field.key, default=defaults[field.key]): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=field.domain)
+            )
+            for field in INPUT_FIELDS
         }
     )
 
