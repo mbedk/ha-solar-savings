@@ -16,13 +16,28 @@ from datetime import datetime
 
 PERIODS = ("daily", "weekly", "monthly", "yearly")
 
-# Daily history grows one entry per day forever; the other three periods grow
-# slowly enough (<=366/year for weekly, 12/year for monthly, 1/year for
-# yearly) that no cap is needed. This bounds the entity attribute (and the
-# recorder writes it) to a reasonable size - old daily figures are still
-# fully recoverable from the underlying sensor's own recorder history, this
-# is just a convenience window, not the only copy of the data.
-MAX_DAILY_HISTORY = 60
+# How many closed periods to retain in history, per period type. Yearly is
+# kept forever; the others are capped to bound the entity attribute (and the
+# recorder writes it) to a reasonable size - older figures are still fully
+# recoverable from the underlying sensor's own recorder history, this is
+# just a convenience window, not the only copy of the data.
+MAX_HISTORY: dict[str, int | None] = {
+    "daily": 30,
+    "weekly": 4,
+    "monthly": 12,
+    "yearly": None,
+}
+
+
+def _trim_history(history: dict[str, float], limit: int | None) -> dict[str, float]:
+    """Keep only the newest `limit` entries (period keys sort lexicographically
+    in chronological order for all four formats), dropping the oldest first.
+    `limit=None` means unbounded (yearly).
+    """
+    if limit is None or len(history) <= limit:
+        return dict(history)
+    kept_keys = sorted(history)[len(history) - limit :]
+    return {k: history[k] for k in kept_keys}
 
 
 def _period_key(period: str, now: datetime) -> str:
@@ -73,9 +88,7 @@ class PeriodTracker:
                     # never a fabricated or interpolated number.
                     history = self._history.setdefault(period, {})
                     history[old_key] = self._values[period]
-                    if period == "daily" and len(history) > MAX_DAILY_HISTORY:
-                        for stale_key in sorted(history)[: len(history) - MAX_DAILY_HISTORY]:
-                            del history[stale_key]
+                    self._history[period] = _trim_history(history, MAX_HISTORY[period])
                 self._period_keys[period] = key
                 self._baselines[period] = current_total
             self._values[period] = current_total - self._baselines[period]
@@ -104,6 +117,7 @@ class PeriodTracker:
         tracker._period_keys = dict(data.get("period_keys", {}))
         tracker._baselines = dict(data.get("baselines", {}))
         tracker._history = {
-            period: dict(values) for period, values in data.get("history", {}).items()
+            period: _trim_history(values, MAX_HISTORY.get(period))
+            for period, values in data.get("history", {}).items()
         }
         return tracker

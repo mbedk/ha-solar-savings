@@ -17,7 +17,7 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parent.parent / "custom_components" / "solar_savings")
 )
 
-from periods import MAX_DAILY_HISTORY, PeriodTracker  # noqa: E402
+from periods import MAX_HISTORY, PeriodTracker  # noqa: E402
 
 
 class FreshTrackerTests(unittest.TestCase):
@@ -131,14 +131,15 @@ class HistoryTests(unittest.TestCase):
     def test_daily_history_is_capped_dropping_the_oldest_first(self) -> None:
         from datetime import timedelta
 
+        limit = MAX_HISTORY["daily"]
         tracker = PeriodTracker()
         start = datetime(2026, 1, 1, 10, 0)
         tracker.update(start, current_total=0.0)
-        n_rollovers = MAX_DAILY_HISTORY + 5
+        n_rollovers = limit + 5
         for i in range(1, n_rollovers + 1):
             tracker.update(start + timedelta(days=i), current_total=float(i))
         history = tracker.history("daily")
-        self.assertEqual(len(history), MAX_DAILY_HISTORY)
+        self.assertEqual(len(history), limit)
         oldest_closed_day = (start + timedelta(days=0)).strftime("%Y-%m-%d")
         newest_closed_day = (start + timedelta(days=n_rollovers - 1)).strftime("%Y-%m-%d")
         first_surviving_day = (start + timedelta(days=5)).strftime("%Y-%m-%d")
@@ -146,12 +147,56 @@ class HistoryTests(unittest.TestCase):
         self.assertIn(first_surviving_day, history)
         self.assertIn(newest_closed_day, history)
 
-    def test_weekly_monthly_yearly_history_is_not_capped(self) -> None:
+    def test_weekly_history_is_capped_at_4_weeks(self) -> None:
+        from datetime import timedelta
+
+        limit = MAX_HISTORY["weekly"]
+        tracker = PeriodTracker()
+        # 2026-01-05 is a Monday - start on a week boundary so each +7 days
+        # lands on the next ISO week's Monday, one rollover per iteration.
+        start = datetime(2026, 1, 5, 10, 0)
+        tracker.update(start, current_total=0.0)
+        n_rollovers = limit + 3
+        for i in range(1, n_rollovers + 1):
+            tracker.update(start + timedelta(weeks=i), current_total=float(i))
+        history = tracker.history("weekly")
+        self.assertEqual(len(history), limit)
+        oldest_key = f"{start.isocalendar()[0]}-W{start.isocalendar()[1]:02d}"
+        self.assertNotIn(oldest_key, history)
+
+    def test_monthly_history_is_capped_at_12_months(self) -> None:
+        limit = MAX_HISTORY["monthly"]
+        tracker = PeriodTracker()
+        tracker.update(datetime(2025, 1, 1, 10, 0), current_total=0.0)
+        n_rollovers = limit + 3
+        for i in range(1, n_rollovers + 1):
+            year = 2025 + (i // 12)
+            month = (i % 12) + 1
+            tracker.update(datetime(year, month, 1, 10, 0), current_total=float(i))
+        history = tracker.history("monthly")
+        self.assertEqual(len(history), limit)
+        self.assertNotIn("2025-01", history)
+
+    def test_yearly_history_is_never_capped(self) -> None:
+        n_years = MAX_HISTORY["monthly"] + 20  # comfortably more than any other cap
         tracker = PeriodTracker()
         tracker.update(datetime(2020, 1, 1, 10, 0), current_total=0.0)
-        for year in range(2021, 2021 + MAX_DAILY_HISTORY + 5):
+        for year in range(2021, 2021 + n_years):
             tracker.update(datetime(year, 1, 1, 10, 0), current_total=float(year))
-        self.assertEqual(len(tracker.history("yearly")), MAX_DAILY_HISTORY + 5)
+        self.assertEqual(len(tracker.history("yearly")), n_years)
+
+    def test_from_dict_trims_an_oversized_history_immediately(self) -> None:
+        # Simulates loading persisted state that predates a cap tightening
+        # (e.g. the weekly cap dropping from "unbounded" to 4) - the excess
+        # must be trimmed on load, not left oversized until the next rollover.
+        oversized_weekly = {f"2026-W{week:02d}": float(week) for week in range(1, 11)}
+        restored = PeriodTracker.from_dict(
+            {"period_keys": {}, "baselines": {}, "history": {"weekly": oversized_weekly}}
+        )
+        history = restored.history("weekly")
+        limit = MAX_HISTORY["weekly"]
+        self.assertEqual(len(history), limit)
+        self.assertEqual(set(history), {f"2026-W{week:02d}" for week in range(11 - limit, 11)})
 
     def test_history_round_trips_through_dict(self) -> None:
         tracker = PeriodTracker()
