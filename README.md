@@ -10,25 +10,116 @@ make," but "how much did that actually save me, and how much did the battery
 save me separately by buying grid energy cheap and using it when it's
 expensive."
 
-## Why this exists
+## What it tells you
 
-A solar+battery system with a dynamically-priced grid (Nord Pool / Energi
-Data Service in this case) produces savings from several distinct sources,
-and a home battery that can be charged from *either* solar surplus *or* the
-grid (for price arbitrage) means every kWh leaving the battery has to be
-traced back to where it came from before it can be valued correctly. See
-[`custom_components/solar_savings/ledger.py`](custom_components/solar_savings/ledger.py)
-for the accounting model (a FIFO queue of energy "parcels," each tagged with
-its source and, for grid parcels, the price paid).
+With a dynamically-priced grid tariff, a kWh is worth whatever the price was
+at the moment you used it — and a battery that can be charged from *either*
+solar surplus *or* cheap grid energy means savings come from several
+different places. This integration keeps them apart:
 
-## How the FIFO ledger works
+- **Solar used directly** by the house, valued at the grid price you avoided
+  paying at that moment.
+- **Solar stored and used later**, valued at the price in effect when it
+  actually came back out of the battery — usually worth more than using it
+  at midday.
+- **Battery arbitrage** — grid energy bought cheap overnight and used when
+  the price is high. Only the spread counts as a saving.
+- **Export revenue** — energy sent back to the grid, at the export price.
+  Revenue rather than a saving, so it's tracked separately and never mixed
+  into the savings totals.
 
-Every charge appends a "parcel" to the **back** of a queue (tagged with
-where the energy came from, and its cost if it came from the grid). Every
-discharge consumes energy from the **front** of that same queue — so energy
-is credited to whichever stream it actually came from, in the order it was
-actually stored, instead of an approximate "solar vs. grid" ratio for the
-whole battery.
+Everything accumulates from the day you install it and survives restarts.
+
+## Entities
+
+**Money (DKK, `device_class: monetary`)**
+
+| Entity | What it means |
+|---|---|
+| `sensor.solar_direct_savings` | Solar used immediately by the house, valued at grid price at time of use |
+| `sensor.solar_via_battery_savings` | Solar stored then discharged later, valued at grid price at time of discharge |
+| `sensor.total_solar_savings` | The two above, combined — "how much has solar saved me" |
+| `sensor.battery_arbitrage_savings` | Grid energy bought cheap, stored, discharged when the price was higher |
+| `sensor.total_system_savings` | Solar savings + arbitrage savings — everything the system has saved |
+| `sensor.solar_export_revenue` | Energy fed back to the grid, at the export/compensation price |
+
+**Period totals (DKK)** — `total_system_savings`, but counting only the
+current day, week, month or year:
+
+| Entity | Resets |
+|---|---|
+| `sensor.total_system_savings_daily` | Local midnight |
+| `sensor.total_system_savings_weekly` | Monday (ISO week) |
+| `sensor.total_system_savings_monthly` | The 1st |
+| `sensor.total_system_savings_yearly` | January 1st |
+
+Each of these also carries a `history` attribute holding previous closed
+periods, so you can show last month's or last year's total without digging
+through the Statistics view:
+
+```
+{{ state_attr('sensor.total_system_savings_yearly', 'history')['2025'] }}
+```
+
+History keeps the last 30 days, 4 weeks and 12 months; yearly is kept
+indefinitely. Only periods the integration actually lived through appear —
+nothing is estimated or backfilled.
+
+**Diagnostics**
+
+| Entity | Unit | What it means |
+|---|---|---|
+| `sensor.battery_solar_fraction` | ratio 0–1 | Share of what's in the battery right now that is solar-origin |
+| `sensor.battery_grid_charge_cost_basis` | DKK/kWh | Weighted-average price paid for the grid-origin energy currently in the battery |
+
+## Requirements
+
+You need entities already in Home Assistant providing:
+
+- Solar production, battery charge and battery discharge power, and grid
+  feed-in power — **in kW**
+- Grid import price and export price — **in currency per kWh**
+- A binary sensor that is `on` while the battery is being charged *from the
+  grid* rather than from solar
+
+The defaults match a FoxESS inverter + evcc + Energi Data Service setup, but
+any inverter or pricing integration works as long as the units match.
+
+## Installation
+
+**HACS (recommended):** add
+`https://github.com/mbedk/ha-solar-savings` as a custom repository with
+category "Integration," install it, then restart Home Assistant.
+
+**Manual:** copy `custom_components/solar_savings/` into your Home Assistant
+`config/custom_components/` directory and restart.
+
+## Configuration
+
+Add it via **Settings → Devices & Services → Add Integration → Solar
+Savings**. The form asks for seven entities, all pre-filled and all
+selectable from a dropdown:
+
+| Field | Default |
+|---|---|
+| Solar power | `sensor.pv_power` |
+| Battery charge power | `sensor.battery_charge` |
+| Battery discharge power | `sensor.battery_discharge` |
+| Grid feed-in (export) power | `sensor.feed_in` |
+| Grid import price | `sensor.energi_data_service` |
+| Export / compensation price | `sensor.energi_data_service_raw` |
+| Battery grid-charge indicator | `binary_sensor.evcc_battery_grid_charge_active` |
+
+There is nothing to configure in YAML.
+
+## How a kWh gets valued
+
+Energy that goes into the battery doesn't lose its identity. Every charge
+appends a "parcel" to the **back** of a queue, tagged with where the energy
+came from and — for grid energy — what was paid for it. Every discharge
+takes from the **front** of that queue, so each kWh is credited to the
+stream it actually came from, in the order it was stored, rather than
+smeared across an approximate solar-vs-grid ratio for the whole battery.
 
 ```mermaid
 flowchart TD
@@ -49,25 +140,24 @@ flowchart TD
     P --> F
 ```
 
-Walking through it with concrete numbers (this is exactly what
-[`tests/test_ledger.py`](tests/test_ledger.py)'s
-`test_discharge_consumes_parcels_in_fifo_order` asserts):
+<details>
+<summary>Worked example with concrete numbers</summary>
 
 ```
-1. charge_battery(2.0 kWh, SOLAR, cost=0)
+1. charge 2.0 kWh from SOLAR
    queue:  [ SOLAR 2.0 kWh ]
             front ────────── back
 
-2. charge_battery(3.0 kWh, GRID, cost=1.00 DKK/kWh)
+2. charge 3.0 kWh from GRID at 1.00 DKK/kWh
    queue:  [ SOLAR 2.0 kWh ][ GRID 3.0 kWh @1.00 ]
             front ──────────────────────── back
 
-3. discharge_battery(1.0 kWh, grid_price=2.00)
+3. discharge 1.0 kWh while the grid price is 2.00
    → takes 1.0 kWh off the FRONT parcel (SOLAR)
    → solar_via_battery_savings += 1.0 × 2.00 = 2.00 DKK
    queue:  [ SOLAR 1.0 kWh ][ GRID 3.0 kWh @1.00 ]
 
-4. discharge_battery(2.0 kWh, grid_price=2.00)
+4. discharge 2.0 kWh while the grid price is 2.00
    → finishes the SOLAR parcel (1.0 kWh left): += 1.0 × 2.00 = 2.00 DKK
      (solar_via_battery_savings now 4.00 DKK total) — parcel emptied, popped
    → spills into the GRID parcel for the remaining 1.0 kWh:
@@ -78,113 +168,47 @@ Result: solar_via_battery_savings = 4.00 DKK, battery_arbitrage_savings =
 1.00 DKK — each kWh landed in the stream it actually came from.
 ```
 
-`battery_solar_fraction` and `battery_grid_charge_cost_basis` (the two
-diagnostic sensors) are just read-outs of what's currently sitting in the
-queue at any given moment — e.g. after step 4 above, the queue is 100% GRID
-at a 1.00 DKK/kWh cost basis, so `battery_solar_fraction` would read `0.0`.
+The two diagnostic sensors simply read out what's in the queue at any
+moment: after step 4 it holds nothing but grid energy, so
+`battery_solar_fraction` reads `0.0` and the cost basis reads `1.00`.
 
-## Daily/weekly/monthly/yearly rollover
+</details>
 
-[`periods.py`](custom_components/solar_savings/periods.py) tracks the four
-`sensor.total_system_savings_*` entities the same way the ledger tracks
-money: a small, dependency-free, unit-tested class (`tests/test_periods.py`)
-that `engine.py` feeds on every tick. For each period it remembers a
-**baseline** — the value `total_system_savings` had when the current
-day/week/month/year started — and reports `total_system_savings − baseline`.
-When the calendar rolls over (checked against *local* time, so "daily" means
-local midnight, not UTC), the baseline resets to whatever the total is at
-that moment, and the period starts counting from zero again. "Weekly" uses
-the ISO week (Monday start) — note that this doesn't always line up with
-"yearly": the ISO week containing Jan 1st can belong to the previous
-calendar year (`tests/test_periods.py` has a rollover test built around
-exactly that case).
+## Good to know
 
-## Entities created
+**Savings can go down.** Arbitrage is a bet: if grid-charged energy is
+discharged after the price has fallen below what was paid for it, that trade
+lost money and `battery_arbitrage_savings` — plus anything summing it —
+decreases. This is why the money entities use `state_class: total` rather
+than `total_increasing`.
 
-| Entity | Unit | What it means |
-|---|---|---|
-| `sensor.solar_direct_savings` | DKK | Solar used immediately by the house, valued at grid price at time of use |
-| `sensor.solar_via_battery_savings` | DKK | Solar stored then discharged later, valued at grid price at time of discharge |
-| `sensor.total_solar_savings` | DKK | The two above, combined — "how much has solar saved me" |
-| `sensor.battery_arbitrage_savings` | DKK | Grid energy bought cheap, stored, discharged when the price was higher |
-| `sensor.total_system_savings` | DKK | Solar savings + arbitrage savings — everything the system has saved, regardless of source |
-| `sensor.solar_export_revenue` | DKK | Energy fed back to the grid, valued at the export/compensation price. Revenue, not a saving — kept separate on purpose |
-| `sensor.total_system_savings_daily` | DKK | `total_system_savings`, but reset to the value it had at local midnight today |
-| `sensor.total_system_savings_weekly` | DKK | Same, reset at the start of the current ISO week (Monday) |
-| `sensor.total_system_savings_monthly` | DKK | Same, reset on the 1st of the current month |
-| `sensor.total_system_savings_yearly` | DKK | Same, reset on Jan 1st of the current year |
-| `sensor.battery_solar_fraction` | ratio 0–1 | Diagnostic: share of what's currently in the battery that's solar-origin |
-| `sensor.battery_grid_charge_cost_basis` | DKK/kWh | Diagnostic: weighted-average price paid for the grid-origin energy currently in the battery |
+**The grid-charge indicator can lag.** It may trail the real
+charge-source switch by up to one poll cycle of whatever integration
+provides it (~30 s for `evcc_intg`). For a charge or discharge lasting
+minutes to hours, that misattributes a negligible sliver of energy at the
+boundary.
 
-All money entities are `device_class: monetary`, `state_class: total` — they
-accumulate over time like the others, but `battery_arbitrage_savings` (and
-anything summing it, including the four period sensors above) can
-legitimately decrease within a period after a losing arbitrage trade
-(grid-charged energy discharged once the price has dropped below what was
-paid for it), so `total_increasing` would be both rejected by Home Assistant
-and semantically wrong. For the other four money entities (which only ever
-go up), HA's own History/Statistics graphs already give daily/monthly/yearly
-breakdowns for free — the four period sensors exist specifically for
-`total_system_savings` because a dashboard tile wanting "how much has this
-saved me this month" shouldn't require opening the Statistics view.
+**Downtime isn't backfilled.** After a restart, measurement resumes from
+that moment. Energy that flowed while Home Assistant was down is not
+estimated and not counted — the totals stay honest rather than complete.
 
-## Configuration
+**Prices that go unavailable are skipped.** If the price entity is briefly
+unavailable, that slice isn't valued rather than valued at zero, which would
+quietly invent savings.
 
-Added via **Settings → Devices & Services → Add Integration → Solar
-Savings**. The setup form asks for seven entities (all pre-filled with
-sensible defaults, all EntitySelector fields so nothing is hardcoded):
-
-| Field | Default |
-|---|---|
-| Solar power | `sensor.pv_power` |
-| Battery charge power | `sensor.battery_charge` |
-| Battery discharge power | `sensor.battery_discharge` |
-| Grid feed-in (export) power | `sensor.feed_in` |
-| Grid import price | `sensor.energi_data_service` |
-| Export / compensation price | `sensor.energi_data_service_raw` |
-| Battery grid-charge indicator | `binary_sensor.evcc_battery_grid_charge_active` |
-
-The defaults match a FoxESS inverter + evcc + Energi Data Service setup; any
-field can point at different entities for a different inverter/pricing
-integration, as long as the power entities are in kW and the price entities
-are in currency/kWh.
-
-## Installation
-
-**HACS (recommended):** this repo is mirrored to
-[`github.com/mbedk/ha-solar-savings`](https://github.com/mbedk/ha-solar-savings)
-specifically so HACS can use it — HACS's "add custom repository" flow
-expects a GitHub URL, which the self-hosted source repo alone wouldn't
-satisfy. Add `https://github.com/mbedk/ha-solar-savings` as a custom
-repository, category "Integration," then install and restart Home
-Assistant.
-
-**Manual:** copy `custom_components/solar_savings/` into your Home
-Assistant `config/custom_components/` directory, restart Home Assistant,
-then add the integration from the UI.
+**Weeks and years can disagree.** "Weekly" uses the ISO week, so the week
+containing January 1st may belong to the previous year.
 
 ## Development
 
-The core accounting logic (`ledger.py`) has no Home Assistant dependency and
-is unit tested on its own:
+The accounting logic has no Home Assistant dependency and is unit tested on
+its own:
 
 ```sh
 python3 -m unittest discover -s tests -v
 ```
 
-`engine.py` is the thin Home Assistant-facing layer: it listens for state
-changes on the configured entities (plus a ~30s backstop timer, matching
-`evcc_intg`'s own poll cadence, for sensors that hold steady and never fire a
-state-changed event), reads them into an `Inputs` snapshot, persists the
-result via Home Assistant's `Store` helper, and notifies the sensor platform.
-The power→energy integration and the choice of which savings stream each
-slice belongs to is `ledger.apply_interval()` — pure and Home
-Assistant-free, so it is unit tested directly in `tests/test_accounting.py`.
-
-### Known limitation
-
-The battery grid-charge indicator can lag the real charge-source switch by
-up to one poll cycle of whatever integration provides it (~30s for
-`evcc_intg`, confirmed empirically). For a charge/discharge event lasting
-minutes to hours this misattributes a negligible sliver of energy at the
-boundary.
+`ledger.py` (the FIFO queue and the per-interval accounting) and
+`periods.py` (calendar rollover) are pure Python; `engine.py` is the thin
+Home Assistant layer that reads the configured entities, feeds the ledger,
+persists state and updates the sensors.
