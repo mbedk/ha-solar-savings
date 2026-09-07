@@ -175,9 +175,11 @@ python3 -m unittest discover -s tests -v
 `engine.py` is the thin Home Assistant-facing layer: it listens for state
 changes on the configured entities (plus a ~30s backstop timer, matching
 `evcc_intg`'s own poll cadence, for sensors that hold steady and never fire a
-state-changed event), does the power→energy integration, feeds the ledger,
-persists it via Home Assistant's `Store` helper, and notifies the sensor
-platform.
+state-changed event), reads them into an `Inputs` snapshot, persists the
+result via Home Assistant's `Store` helper, and notifies the sensor platform.
+The power→energy integration and the choice of which savings stream each
+slice belongs to is `ledger.apply_interval()` — pure and Home
+Assistant-free, so it is unit tested directly in `tests/test_accounting.py`.
 
 ### Known limitation
 

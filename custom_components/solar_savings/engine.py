@@ -29,7 +29,7 @@ from .const import (
     STORAGE_VERSION,
     TICK_INTERVAL_SECONDS,
 )
-from .ledger import GRID, SOLAR, SolarSavingsLedger
+from .ledger import Inputs, SolarSavingsLedger, apply_interval
 from .periods import PeriodTracker
 
 _LOGGER = logging.getLogger(__name__)
@@ -120,6 +120,27 @@ class SolarSavingsEngine:
     def _handle_tick(self, now: datetime) -> None:
         self.hass.async_create_task(self._process(now))
 
+    def _read_inputs(self) -> Inputs:
+        """Snapshot the configured entities. Unavailable powers read as 0.0
+        (nothing is flowing that we can account for); unavailable prices stay
+        None so the accounting can skip valuing that slice rather than value
+        it at zero.
+        """
+        cfg = self.config
+        return Inputs(
+            solar_power=_read_float(self.hass, cfg[CONF_SOLAR_POWER_ENTITY]) or 0.0,
+            battery_charge_power=(
+                _read_float(self.hass, cfg[CONF_BATTERY_CHARGE_POWER_ENTITY]) or 0.0
+            ),
+            battery_discharge_power=(
+                _read_float(self.hass, cfg[CONF_BATTERY_DISCHARGE_POWER_ENTITY]) or 0.0
+            ),
+            feed_in_power=_read_float(self.hass, cfg[CONF_FEED_IN_POWER_ENTITY]) or 0.0,
+            grid_price=_read_float(self.hass, cfg[CONF_GRID_PRICE_ENTITY]),
+            export_price=_read_float(self.hass, cfg[CONF_EXPORT_PRICE_ENTITY]),
+            grid_charging=_read_bool(self.hass, cfg[CONF_BATTERY_GRID_CHARGE_ENTITY]),
+        )
+
     async def _process(self, now: datetime) -> None:
         if self._last_ts is None:
             self._last_ts = now
@@ -129,45 +150,7 @@ class SolarSavingsEngine:
         if dt_hours <= 0:
             return
 
-        cfg = self.config
-        solar_power = _read_float(self.hass, cfg[CONF_SOLAR_POWER_ENTITY]) or 0.0
-        battery_charge_power = _read_float(self.hass, cfg[CONF_BATTERY_CHARGE_POWER_ENTITY]) or 0.0
-        battery_discharge_power = (
-            _read_float(self.hass, cfg[CONF_BATTERY_DISCHARGE_POWER_ENTITY]) or 0.0
-        )
-        feed_in_power = _read_float(self.hass, cfg[CONF_FEED_IN_POWER_ENTITY]) or 0.0
-        grid_price = _read_float(self.hass, cfg[CONF_GRID_PRICE_ENTITY])
-        export_price = _read_float(self.hass, cfg[CONF_EXPORT_PRICE_ENTITY])
-        grid_charging = _read_bool(self.hass, cfg[CONF_BATTERY_GRID_CHARGE_ENTITY])
-
-        battery_charge_energy = battery_charge_power * dt_hours
-        battery_discharge_energy = battery_discharge_power * dt_hours
-
-        if battery_charge_energy > 0:
-            if grid_charging and grid_price is not None:
-                self.ledger.charge_battery(battery_charge_energy, GRID, grid_price)
-            elif not grid_charging:
-                self.ledger.charge_battery(battery_charge_energy, SOLAR, 0.0)
-            # else: grid-charging with an unavailable price - skip recording this
-            # slice rather than record a false zero-cost grid parcel, which would
-            # fabricate arbitrage profit later. Rare (price sensor virtually
-            # always available), and conservative when it does happen.
-
-        if battery_discharge_energy > 0:
-            self.ledger.discharge_battery(battery_discharge_energy, grid_price)
-
-        # Direct solar = solar power not currently going into the battery from
-        # solar, and not exported. (Grid-sourced battery charging draws AC from
-        # the grid, not from PV output, so it never reduces this.)
-        battery_charge_power_from_solar = 0.0 if grid_charging else battery_charge_power
-        solar_direct_power = max(0.0, solar_power - battery_charge_power_from_solar - feed_in_power)
-        solar_direct_energy = solar_direct_power * dt_hours
-        if solar_direct_energy > 0 and grid_price is not None:
-            self.ledger.add_direct_solar(solar_direct_energy, grid_price)
-
-        export_energy = feed_in_power * dt_hours
-        if export_energy > 0 and export_price is not None:
-            self.ledger.add_export(export_energy, export_price)
+        apply_interval(self.ledger, self._read_inputs(), dt_hours)
 
         # Calendar-period rollover uses local wall-clock time, not the UTC
         # timestamp this method receives for elapsed-time math - "daily"
