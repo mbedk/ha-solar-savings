@@ -110,6 +110,12 @@ selectable from a dropdown:
 | Export / compensation price | `sensor.energi_data_service_raw` |
 | Battery grid-charge indicator | `binary_sensor.evcc_battery_grid_charge_active` |
 
+To point it at different entities later — say you find a source that tracks
+your billing meter more closely — use **Reconfigure** on the integration's
+three-dot menu. Accumulated totals and period history are kept. Do not
+remove and re-add it instead: the ledger is stored per config entry, so a
+fresh entry starts from zero.
+
 There is nothing to configure in YAML.
 
 ## How a kWh gets valued
