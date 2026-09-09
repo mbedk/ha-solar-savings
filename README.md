@@ -97,18 +97,57 @@ category "Integration," install it, then restart Home Assistant.
 ## Configuration
 
 Add it via **Settings → Devices & Services → Add Integration → Solar
-Savings**. The form asks for seven entities, all pre-filled and all
-selectable from a dropdown:
+Savings**. The form asks for seven entities — all required, all pre-filled,
+all selectable from a dropdown — plus an optional system cost:
 
-| Field | Default |
-|---|---|
-| Solar power | `sensor.pv_power` |
-| Battery charge power | `sensor.battery_charge` |
-| Battery discharge power | `sensor.battery_discharge` |
-| Grid feed-in (export) power | `sensor.feed_in` |
-| Grid import price | `sensor.energi_data_service` |
-| Export / compensation price | `sensor.energi_data_service_raw` |
-| Battery grid-charge indicator | `binary_sensor.evcc_battery_grid_charge_active` |
+| Field | Must be | Default |
+|---|---|---|
+| Solar power | power, instantaneous PV generation | `sensor.pv_power` |
+| Battery charge power | power into the battery, 0 otherwise | `sensor.battery_charge` |
+| Battery discharge power | power out of the battery, 0 otherwise | `sensor.battery_discharge` |
+| Grid feed-in (export) power | power exported | `sensor.power_produced` |
+| Grid import price | a price per kWh, all-in | `sensor.energi_data_service` |
+| Export / compensation price | a price per kWh | `sensor.energi_data_service_raw` |
+| Battery grid-charge indicator | `binary_sensor`, on only while charging from the grid | `binary_sensor.evcc_battery_grid_charge_active` |
+| System cost | a number, in DKK | `0` |
+
+**System cost** is what the system cost to install. It's optional — leave it
+at 0 and nothing changes — and exists to measure payback against the
+accumulated savings.
+
+Take the feed-in reading from your **billing meter** rather than from the
+inverter, if you have the choice. An inverter that never reports negative
+power turns noise around zero into export that never crossed the meter; on
+this installation that was worth ~0.13 kWh a day of revenue for energy that
+was never sold.
+
+### What gets checked
+
+The form validates what you pick rather than accepting it and going wrong
+quietly. Each of these looks fine on day one and is badly wrong a month
+later:
+
+- **The entity has to exist.** A missing entity reads as 0.0 forever, so the
+  totals would just be silently low.
+- **Power sensors have to report power.** W, kW and MW are all fine — the
+  accounting works in kW and converts on the way in, so you don't need a
+  template sensor just to scale one. What's rejected is a unit that isn't
+  power at all: a kWh energy total is the likely mis-pick, and multiplying
+  one by elapsed hours produces nonsense.
+- **Price sensors have to be a price per kWh** (`DKK/kWh`, `EUR/kWh`, …) —
+  the currency is yours to choose, the "per kWh" is not.
+- **The four power fields have to be four different entities.** The same one
+  in two places double-counts; solar power also given as feed-in would credit
+  every kWh as both self-consumed and exported.
+
+A sensor that is merely `unavailable` when you submit is accepted — that's
+normal at night or right after a restart — and so is one that carries no unit
+at all, since plenty of template sensors omit it; an unitless power sensor is
+taken at face value as kW.
+
+If a source later starts reporting a unit that isn't power, the engine counts
+it as 0 kW and logs a warning once, rather than silently feeding a wrong
+number into the ledger.
 
 To point it at different entities later — say you find a source that tracks
 your billing meter more closely — use **Reconfigure** on the integration's
