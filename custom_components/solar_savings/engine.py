@@ -10,11 +10,14 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
+from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfPower
 from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import PowerConverter
 
 from .const import (
     CONF_BATTERY_CHARGE_POWER_ENTITY,
@@ -47,6 +50,24 @@ def _read_float(hass: HomeAssistant, entity_id: str) -> float | None:
         return None
 
 
+def _to_kilowatts(value: float, unit: str | None) -> float | None:
+    """Normalise a power reading to kW, the unit the ledger works in.
+
+    A sensor with no unit at all is taken at face value as kW - that is what
+    the config flow tells the user is assumed, and template sensors routinely
+    omit the attribute. A unit that is not power returns None rather than a
+    number: the config flow rejects those, so reaching here means the source
+    changed under us, and counting it as zero is far less wrong than counting
+    a kWh total as if it were kW.
+    """
+    if unit is None or unit == UnitOfPower.KILO_WATT:
+        return value
+    try:
+        return PowerConverter.convert(value, unit, UnitOfPower.KILO_WATT)
+    except (HomeAssistantError, ValueError):
+        return None
+
+
 def _read_bool(hass: HomeAssistant, entity_id: str) -> bool:
     state = hass.states.get(entity_id)
     if state is None or state.state in _UNAVAILABLE_STATES:
@@ -67,6 +88,7 @@ class SolarSavingsEngine:
         self._last_ts: datetime | None = None
         self._unsub_state: list = []
         self._unsub_timer = None
+        self._warned: set[tuple[str, str | None]] = set()
 
     @property
     def signal(self) -> str:
@@ -120,6 +142,34 @@ class SolarSavingsEngine:
     def _handle_tick(self, now: datetime) -> None:
         self.hass.async_create_task(self._process(now))
 
+    def _read_power(self, entity_id: str) -> float | None:
+        """Read a power entity and convert it to kW.
+
+        Warns at most once per entity+unit pair: this ticks every 30 seconds,
+        and a broken source would otherwise fill the log with the same line
+        forever - but staying completely silent while feeding zeros into the
+        accounting is worse.
+        """
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in _UNAVAILABLE_STATES:
+            return None
+        try:
+            value = float(state.state)
+        except (TypeError, ValueError):
+            return None
+
+        unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+        kilowatts = _to_kilowatts(value, unit)
+        if kilowatts is None and (entity_id, unit) not in self._warned:
+            self._warned.add((entity_id, unit))
+            _LOGGER.warning(
+                "%s reports '%s', which is not a power unit - counting it as 0 kW. "
+                "Reconfigure Solar Savings to point at a sensor in W or kW",
+                entity_id,
+                unit,
+            )
+        return kilowatts
+
     def _read_inputs(self) -> Inputs:
         """Snapshot the configured entities. Unavailable powers read as 0.0
         (nothing is flowing that we can account for); unavailable prices stay
@@ -128,14 +178,14 @@ class SolarSavingsEngine:
         """
         cfg = self.config
         return Inputs(
-            solar_power=_read_float(self.hass, cfg[CONF_SOLAR_POWER_ENTITY]) or 0.0,
+            solar_power=self._read_power(cfg[CONF_SOLAR_POWER_ENTITY]) or 0.0,
             battery_charge_power=(
-                _read_float(self.hass, cfg[CONF_BATTERY_CHARGE_POWER_ENTITY]) or 0.0
+                self._read_power(cfg[CONF_BATTERY_CHARGE_POWER_ENTITY]) or 0.0
             ),
             battery_discharge_power=(
-                _read_float(self.hass, cfg[CONF_BATTERY_DISCHARGE_POWER_ENTITY]) or 0.0
+                self._read_power(cfg[CONF_BATTERY_DISCHARGE_POWER_ENTITY]) or 0.0
             ),
-            feed_in_power=_read_float(self.hass, cfg[CONF_FEED_IN_POWER_ENTITY]) or 0.0,
+            feed_in_power=self._read_power(cfg[CONF_FEED_IN_POWER_ENTITY]) or 0.0,
             grid_price=_read_float(self.hass, cfg[CONF_GRID_PRICE_ENTITY]),
             export_price=_read_float(self.hass, cfg[CONF_EXPORT_PRICE_ENTITY]),
             grid_charging=_read_bool(self.hass, cfg[CONF_BATTERY_GRID_CHARGE_ENTITY]),

@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Solar Savings",
-        "description": "Select the entities used to compute solar and battery savings at grid pricing.",
+        "description": "Select the entities used to compute solar and battery savings at grid pricing. All seven are required. Power sensors must report power (W is converted to kW for you) and price sensors a price per kWh - both are checked when you submit.",
         "data": {
           "solar_power_entity": "Solar power",
           "battery_charge_power_entity": "Battery charge power",
@@ -11,12 +11,23 @@
           "feed_in_power_entity": "Grid feed-in (export) power",
           "grid_price_entity": "Grid import price",
           "export_price_entity": "Export / compensation price",
-          "battery_grid_charge_entity": "Battery grid-charge indicator"
+          "battery_grid_charge_entity": "Battery grid-charge indicator",
+          "system_cost": "System cost"
+        },
+        "data_description": {
+          "solar_power_entity": "Required. Instantaneous PV generation - a power reading in W or kW, not a kWh energy total.",
+          "battery_charge_power_entity": "Required. Power going into the battery: positive while charging, 0 otherwise. If your inverter reports one signed charge/discharge figure, split it into two template sensors first.",
+          "battery_discharge_power_entity": "Required. Power coming out of the battery: positive while discharging, 0 otherwise.",
+          "feed_in_power_entity": "Required. Power exported to the grid. Prefer your billing meter over the inverter's own feed-in reading - an inverter that never reports negative turns noise around zero into export that never happened.",
+          "grid_price_entity": "Required. What you pay per kWh imported, all-in (tariffs, VAT). Every saving is valued at this price.",
+          "export_price_entity": "Required. What you are paid per kWh exported - usually the raw spot price, without consumption tariffs.",
+          "battery_grid_charge_entity": "Required. A binary_sensor that is on only while the battery is charging from the grid rather than from solar. This is what tells stored energy apart as solar or bought, so arbitrage and solar savings stay separate.",
+          "system_cost": "Optional. What the solar and battery system cost to install, for measuring payback against accumulated savings. Leave at 0 to skip it."
         }
       },
       "reconfigure": {
         "title": "Solar Savings",
-        "description": "Change the entities used to compute solar and battery savings. Accumulated totals and period history are kept.",
+        "description": "Change the entities used to compute solar and battery savings, or correct the system cost. Accumulated totals and period history are kept.",
         "data": {
           "solar_power_entity": "Solar power",
           "battery_charge_power_entity": "Battery charge power",
@@ -24,9 +35,28 @@
           "feed_in_power_entity": "Grid feed-in (export) power",
           "grid_price_entity": "Grid import price",
           "export_price_entity": "Export / compensation price",
-          "battery_grid_charge_entity": "Battery grid-charge indicator"
+          "battery_grid_charge_entity": "Battery grid-charge indicator",
+          "system_cost": "System cost"
+        },
+        "data_description": {
+          "solar_power_entity": "Required. Instantaneous PV generation - a power reading in W or kW, not a kWh energy total.",
+          "battery_charge_power_entity": "Required. Power going into the battery: positive while charging, 0 otherwise. If your inverter reports one signed charge/discharge figure, split it into two template sensors first.",
+          "battery_discharge_power_entity": "Required. Power coming out of the battery: positive while discharging, 0 otherwise.",
+          "feed_in_power_entity": "Required. Power exported to the grid. Prefer your billing meter over the inverter's own feed-in reading - an inverter that never reports negative turns noise around zero into export that never happened.",
+          "grid_price_entity": "Required. What you pay per kWh imported, all-in (tariffs, VAT). Every saving is valued at this price.",
+          "export_price_entity": "Required. What you are paid per kWh exported - usually the raw spot price, without consumption tariffs.",
+          "battery_grid_charge_entity": "Required. A binary_sensor that is on only while the battery is charging from the grid rather than from solar. This is what tells stored energy apart as solar or bought, so arbitrage and solar savings stay separate.",
+          "system_cost": "Optional. What the solar and battery system cost to install, for measuring payback against accumulated savings. Leave at 0 to skip it."
         }
       }
+    },
+    "error": {
+      "entity_not_found": "No such entity. Pick one that exists - a missing entity would read as zero forever and quietly under-count.",
+      "not_numeric": "This entity's state is not a number.",
+      "not_power_unit": "This sensor does not report power. Pick one in W or kW - W is converted automatically. A kWh energy total will not work here.",
+      "not_price_per_kwh": "This sensor's unit is not a price per kWh (e.g. DKK/kWh).",
+      "not_on_off": "This entity is not a simple on/off flag.",
+      "duplicate_power_entity": "The same entity is selected for two different power readings. Solar, battery charge, battery discharge and feed-in are four separate measurements."
     },
     "abort": {
       "already_configured": "Solar Savings is already configured.",
